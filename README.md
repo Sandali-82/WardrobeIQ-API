@@ -91,7 +91,7 @@ All endpoints have been manually tested via Postman, covering the full flow: aut
 
 ## Related Repositories
 
-- 📱 **Mobile app (Flutter):** `<link to wardrobeiq-app repo>`
+- 📱 **Mobile app (Flutter):** `[<link to wardrobeiq-app repo>](https://github.com/Sandali-82/WardrobeIQ-App.git)`
 
 ## License
 
