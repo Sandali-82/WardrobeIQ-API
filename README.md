@@ -37,7 +37,7 @@ WardrobeIQ analyzes a user's face shape, body shape, and skin undertone, then co
 1. Clone the repository
 
    ```bash
-   git clone <this-repo-url>
+   git clone https://github.com/Sandali-82/WardrobeIQ-API.git
    cd WardrobeApi
    ```
 
