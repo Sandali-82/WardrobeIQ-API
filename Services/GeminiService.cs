@@ -7,14 +7,21 @@ namespace WardrobeApi.Services;
 // Talks to Google's Gemini API for:
 // 1) reasoning over a wardrobe to suggest an outfit for an occasion
 // 2) analyzing a photo to estimate skin undertone (warm/cool/neutral)
-// 3) a one-time general styling guide (necklines/hair/sleeves/colors) built
-//    from face shape + body shape + undertone, independent of any occasion -
-//    this is the "browse once, reuse forever" reference the user asked for,
-//    instead of them re-researching styling advice for every outfit choice.
+// 3) a one-time general styling guide (necklines/hair/sleeves/colors)
 public class GeminiService
 {
     private readonly HttpClient _http;
     private readonly IConfiguration _config;
+
+    // Tried in order for every request. If a model is unavailable/overloaded
+    // (404/503/429), we fall back to the next one instead of failing outright.
+    private static readonly string[] ModelFallbackChain =
+    {
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite"
+    };
 
     public GeminiService(HttpClient http, IConfiguration config)
     {
@@ -111,9 +118,6 @@ public class GeminiService
         return (undertone, explanation);
     }
 
-    // One-off, occasion-independent styling reference built from the user's
-    // saved face shape + body shape + undertone. Cheaper than calling the
-    // occasion endpoint repeatedly just to ask "what suits me in general?".
     public async Task<(string Necklines, string Hairstyles, string Sleeves, string Silhouettes, string Colors, string Avoid)>
         GetStylingGuideAsync(string? faceShape, string? bodyShape, string? skinUndertone)
     {
@@ -161,37 +165,52 @@ public class GeminiService
         return apiKey;
     }
 
+    // Tries each model in ModelFallbackChain in order. Only 503 (server
+    // overloaded) gets a same-model retry - 404 (model not found) and 429
+    // (quota exceeded) move straight to the next model, since retrying the
+    // same model won't help in either case.
     private async Task<string> SendGeminiRequestAsync(string apiKey, object requestBody)
     {
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={apiKey}";
         var jsonBody = JsonSerializer.Serialize(requestBody);
+        var errors = new List<string>();
 
-        const int maxAttempts = 3;
-        HttpResponseMessage? response = null;
-        string raw = "";
-
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        foreach (var model in ModelFallbackChain)
         {
-            response = await _http.PostAsync(url,
-                new StringContent(jsonBody, Encoding.UTF8, "application/json"));
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
 
-            raw = await response.Content.ReadAsStringAsync();
+            const int maxAttemptsPerModel = 2;
+            for (int attempt = 1; attempt <= maxAttemptsPerModel; attempt++)
+            {
+                var response = await _http.PostAsync(url,
+                    new StringContent(jsonBody, Encoding.UTF8, "application/json"));
 
-            if (response.IsSuccessStatusCode)
-                return raw;
+                var raw = await response.Content.ReadAsStringAsync();
 
-            bool isTransient = response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable
-                             || response.StatusCode == System.Net.HttpStatusCode.TooManyRequests;
+                if (response.IsSuccessStatusCode)
+                    return raw;
 
-            if (!isTransient || attempt == maxAttempts)
-                throw new InvalidOperationException($"Gemini API error ({response.StatusCode}): {raw}");
+                errors.Add($"{model} ({response.StatusCode}): {raw}");
 
-            await Task.Delay(1000 * attempt);
+                bool isServerOverloaded = response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable;
+                bool isQuotaExceeded = response.StatusCode == System.Net.HttpStatusCode.TooManyRequests;
+                bool isModelUnavailable = response.StatusCode == System.Net.HttpStatusCode.NotFound;
+
+                if (isModelUnavailable || isQuotaExceeded)
+                    break; // move straight to the next model - retrying here won't help
+
+                if (isServerOverloaded && attempt < maxAttemptsPerModel)
+                {
+                    await Task.Delay(1000 * attempt);
+                    continue;
+                }
+
+                break; // non-transient error or retries exhausted - move to the next model
+            }
         }
 
-        return raw;
+        throw new InvalidOperationException(
+            $"All Gemini models failed. Details: {string.Join(" | ", errors)}");
     }
-
     private static string ExtractTextFromResponse(string raw)
     {
         using var doc = JsonDocument.Parse(raw);
