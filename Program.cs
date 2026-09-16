@@ -14,7 +14,10 @@ builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddSingleton<JwtService>();
 
 // --- Gemini service ---
-builder.Services.AddHttpClient<GeminiService>();
+builder.Services.AddHttpClient<GeminiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(180); // 3 minutes - image analysis can be slow
+});
 
 // --- Auth ---
 var jwtKey = builder.Configuration["Jwt:Key"]!;
