@@ -19,6 +19,9 @@ builder.Services.AddHttpClient<GeminiService>(client =>
     client.Timeout = TimeSpan.FromSeconds(180); // 3 minutes - image analysis can be slow
 });
 
+//---Email service---
+builder.Services.AddScoped<IEmailService, EmailService>();
+
 // --- Auth ---
 var jwtKey = builder.Configuration["Jwt:Key"]!;
 builder.Services.AddAuthentication(options =>

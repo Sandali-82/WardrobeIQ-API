@@ -21,6 +21,10 @@ public class User
     public string? BodyShape { get; set; }
     public string? SkinUndertone { get; set; } // warm / cool / neutral - from a photo via Gemini vision
 
+    // Email confirmation - login is blocked until EmailConfirmed is true.
+    // EmailConfirmationToken is cleared (set to null) once confirmed.
+    public bool EmailConfirmed { get; set; } = false;
+    public string? EmailConfirmationToken { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
