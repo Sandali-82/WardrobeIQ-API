@@ -55,11 +55,13 @@ public class AuthController : ControllerBase
         {
             await _emailService.SendConfirmationEmailAsync(user.Email, confirmLink);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Don't fail registration just because the email couldn't be
             // sent (e.g. SMTP hiccup) - the account still exists and the
             // user can be resent a confirmation link later if needed.
+            // But DO log it, otherwise a real SMTP problem goes silent.
+            Console.WriteLine($"[EMAIL SEND FAILED] {ex.GetType().Name}: {ex.Message}");
         }
 
         // No JWT returned here - the user only gets a token once they've
