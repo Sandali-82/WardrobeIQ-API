@@ -68,7 +68,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Render terminates HTTPS at its own edge proxy and forwards plain HTTP
+// to the container, so forcing a redirect inside the container would
+// fight that setup. Only redirect when actually running locally in dev
+// (where Kestrel serves HTTPS directly).
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
