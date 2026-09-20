@@ -18,7 +18,7 @@ public class ClothingItem
 
     public string ImageUrl { get; set; } = null!;
 
-    // top, bottom, shoes, outerwear, accessory
+    // top, bottom, dress,footwear, outerwear, accessory
     public string Category { get; set; } = null!;
 
     // primary color family, e.g. "black", "white", "blue" - used by the
