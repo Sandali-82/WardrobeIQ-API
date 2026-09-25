@@ -5,7 +5,7 @@ public record CreateClothingItemRequest(
     string ImageUrl,
     string Category,
     string Color,
-    string Season,
+    string? Season,
     List<string>? Tags
 );
 
