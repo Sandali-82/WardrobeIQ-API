@@ -13,9 +13,9 @@ namespace WardrobeApi.Controllers;
 public class ProfileController : ControllerBase
 {
     private readonly MongoDbContext _db;
-    private readonly GeminiService _gemini;
+    private readonly IGeminiService _gemini;
 
-    public ProfileController(MongoDbContext db, GeminiService gemini)
+    public ProfileController(MongoDbContext db, IGeminiService gemini)
     {
         _db = db;
         _gemini = gemini;
@@ -120,11 +120,6 @@ public class ProfileController : ControllerBase
 
     // ---------- Styling guide (combines all three, occasion-independent) ----------
 
-    // GET /api/profile/styling-guide
-    // Uses whatever face shape / body shape / undertone the user has already
-    // calculated - no extra input needed. This is the "figure it out once,
-    // reuse forever" reference, instead of the user researching styling
-    // advice (or paying for a stylist consult) every time they get dressed.
     [HttpGet("styling-guide")]
     public async Task<ActionResult<StylingGuideResponse>> GetStylingGuide()
     {

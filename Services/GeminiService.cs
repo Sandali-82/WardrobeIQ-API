@@ -8,7 +8,7 @@ namespace WardrobeApi.Services;
 // 1) reasoning over a wardrobe to suggest an outfit for an occasion
 // 2) analyzing a photo to estimate skin undertone (warm/cool/neutral)
 // 3) a one-time general styling guide (necklines/hair/sleeves/colors)
-public class GeminiService
+public class GeminiService : IGeminiService
 {
     private readonly HttpClient _http;
     private readonly IConfiguration _config;

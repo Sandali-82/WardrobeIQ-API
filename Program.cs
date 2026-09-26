@@ -14,7 +14,7 @@ builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddSingleton<JwtService>();
 
 // --- Gemini service ---
-builder.Services.AddHttpClient<GeminiService>(client =>
+builder.Services.AddHttpClient<IGeminiService, GeminiService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(180); // 3 minutes - image analysis can be slow
 });
