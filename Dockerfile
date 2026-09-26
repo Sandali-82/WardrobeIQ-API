@@ -4,12 +4,12 @@ WORKDIR /src
 
 # Copy csproj first and restore separately so Docker can cache this layer
 # and skip re-downloading NuGet packages when only source files change.
-COPY *.csproj ./
-RUN dotnet restore
+COPY WardrobeApi/*.csproj WardrobeApi/
+RUN dotnet restore WardrobeApi/WardrobeApi.csproj
 
 # Copy the rest of the source and publish a release build.
 COPY . ./
-RUN dotnet publish -c Release -o /app/publish --no-restore
+RUN dotnet publish WardrobeApi/WardrobeApi.csproj -c Release -o /app/publish --no-restore
 
 # ---- Runtime stage ----
 # Smaller image with just the ASP.NET runtime, not the full SDK - the
