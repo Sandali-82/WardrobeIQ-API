@@ -6,7 +6,7 @@ using WardrobeApi.Models;
 
 namespace WardrobeApi.Services;
 
-public class JwtService
+public class JwtService : IJwtService
 {
     private readonly IConfiguration _config;
 

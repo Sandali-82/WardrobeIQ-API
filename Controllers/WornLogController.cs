@@ -1,10 +1,9 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 using WardrobeApi.DTOs;
 using WardrobeApi.Models;
-using WardrobeApi.Services;
+using WardrobeApi.Repositories;
 
 namespace WardrobeApi.Controllers;
 
@@ -13,11 +12,11 @@ namespace WardrobeApi.Controllers;
 [Authorize]
 public class WornLogController : ControllerBase
 {
-    private readonly MongoDbContext _db;
+    private readonly IWornLogRepository _wornLogs;
 
-    public WornLogController(MongoDbContext db)
+    public WornLogController(IWornLogRepository wornLogs)
     {
-        _db = db;
+        _wornLogs = wornLogs;
     }
 
     private string CurrentUserId =>
@@ -30,23 +29,12 @@ public class WornLogController : ControllerBase
     public async Task<ActionResult<List<WornLogResponse>>> GetRange(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to)
     {
-        var filterBuilder = Builders<WornLog>.Filter;
-        var filter = filterBuilder.Eq(w => w.UserId, CurrentUserId);
-
-        if (from.HasValue)
-            filter &= filterBuilder.Gte(w => w.DateWorn, from.Value.Date);
-        if (to.HasValue)
-            filter &= filterBuilder.Lte(w => w.DateWorn, to.Value.Date);
-
-        var logs = await _db.WornLogs.Find(filter).SortBy(w => w.DateWorn).ToListAsync();
+        var logs = await _wornLogs.GetRangeForUserAsync(CurrentUserId, from, to);
         if (logs.Count == 0) return Ok(new List<WornLogResponse>());
 
         // One extra query to resolve outfit names, rather than N+1 lookups per log
         var outfitIds = logs.Select(l => l.OutfitId).Distinct().ToList();
-        var outfits = await _db.Outfits
-            .Find(o => outfitIds.Contains(o.Id))
-            .ToListAsync();
-        var outfitNameById = outfits.ToDictionary(o => o.Id, o => o.Name);
+        var outfitNameById = await _wornLogs.GetOutfitNamesByIdAsync(outfitIds);
 
         var response = logs.Select(l => new WornLogResponse(
             l.Id,
@@ -61,10 +49,7 @@ public class WornLogController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<WornLogResponse>> Create(CreateWornLogRequest request)
     {
-        var outfit = await _db.Outfits
-            .Find(o => o.Id == request.OutfitId && o.UserId == CurrentUserId)
-            .FirstOrDefaultAsync();
-
+        var outfit = await _wornLogs.GetOwnedOutfitAsync(request.OutfitId, CurrentUserId);
         if (outfit == null)
             return BadRequest(new { message = "Outfit not found in your account." });
 
@@ -72,14 +57,11 @@ public class WornLogController : ControllerBase
 
         // One outfit-log per day: if the user already logged something for this
         // date, overwrite it instead of creating a duplicate entry.
-        var existing = await _db.WornLogs
-            .Find(w => w.UserId == CurrentUserId && w.DateWorn == dateOnly)
-            .FirstOrDefaultAsync();
+        var existing = await _wornLogs.GetByUserAndDateAsync(CurrentUserId, dateOnly);
 
         if (existing != null)
         {
-            var update = Builders<WornLog>.Update.Set(w => w.OutfitId, request.OutfitId);
-            await _db.WornLogs.UpdateOneAsync(w => w.Id == existing.Id, update);
+            await _wornLogs.UpdateOutfitForExistingLogAsync(existing.Id, request.OutfitId);
             return Ok(new WornLogResponse(existing.Id, request.OutfitId, outfit.Name, dateOnly));
         }
 
@@ -90,17 +72,15 @@ public class WornLogController : ControllerBase
             DateWorn = dateOnly
         };
 
-        await _db.WornLogs.InsertOneAsync(log);
-        return Ok(new WornLogResponse(log.Id, log.OutfitId, outfit.Name, log.DateWorn));
+        var created = await _wornLogs.CreateAsync(log);
+        return Ok(new WornLogResponse(created.Id, created.OutfitId, outfit.Name, created.DateWorn));
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
     {
-        var result = await _db.WornLogs.DeleteOneAsync(
-            w => w.Id == id && w.UserId == CurrentUserId);
-
-        if (result.DeletedCount == 0) return NotFound();
+        var deleted = await _wornLogs.DeleteAsync(id, CurrentUserId);
+        if (!deleted) return NotFound();
         return NoContent();
     }
 }

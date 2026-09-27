@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using WardrobeApi.Models;
+using WardrobeApi.Repositories;
 using WardrobeApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,7 +12,13 @@ builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("Mo
 builder.Services.AddSingleton<MongoDbContext>();
 
 // --- JWT service ---
-builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<IJwtService, JwtService>();
+
+// --- Repositories ---
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IClothingItemRepository, ClothingItemRepository>();
+builder.Services.AddScoped<IOutfitRepository, OutfitRepository>();
+builder.Services.AddScoped<IWornLogRepository, WornLogRepository>();
 
 // --- Gemini service ---
 builder.Services.AddHttpClient<IGeminiService, GeminiService>(client =>

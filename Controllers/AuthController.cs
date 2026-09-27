@@ -1,9 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 using WardrobeApi.DTOs;
 using WardrobeApi.Models;
+using WardrobeApi.Repositories;
 using WardrobeApi.Services;
 
 namespace WardrobeApi.Controllers;
@@ -12,13 +12,13 @@ namespace WardrobeApi.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-    private readonly MongoDbContext _db;
-    private readonly JwtService _jwt;
+    private readonly IUserRepository _users;
+    private readonly IJwtService _jwt;
     private readonly IEmailService _emailService;
 
-    public AuthController(MongoDbContext db, JwtService jwt, IEmailService emailService)
+    public AuthController(IUserRepository users, IJwtService jwt, IEmailService emailService)
     {
-        _db = db;
+        _users = users;
         _jwt = jwt;
         _emailService = emailService;
     }
@@ -29,7 +29,7 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequest request)
     {
-        var existing = await _db.Users.Find(u => u.Email == request.Email).FirstOrDefaultAsync();
+        var existing = await _users.GetByEmailAsync(request.Email);
         if (existing != null)
             return Conflict(new { message = "An account with this email already exists." });
 
@@ -44,7 +44,7 @@ public class AuthController : ControllerBase
             EmailConfirmationToken = confirmationToken
         };
 
-        await _db.Users.InsertOneAsync(user);
+        await _users.CreateAsync(user);
 
         // Built from the actual request host, so it works whether the
         // backend is reached over the phone hotspot's local IP (dev) or
@@ -72,7 +72,7 @@ public class AuthController : ControllerBase
     [HttpGet("confirm-email")]
     public async Task<IActionResult> ConfirmEmail([FromQuery] string userId, [FromQuery] string token)
     {
-        var user = await _db.Users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(userId);
         if (user == null || user.EmailConfirmationToken != token)
         {
             return Content(BuildResultHtml(
@@ -82,11 +82,7 @@ public class AuthController : ControllerBase
             ), "text/html");
         }
 
-        var update = Builders<User>.Update
-            .Set(u => u.EmailConfirmed, true)
-            .Set(u => u.EmailConfirmationToken, (string?)null);
-
-        await _db.Users.UpdateOneAsync(u => u.Id == userId, update);
+        await _users.ConfirmEmailAsync(userId);
 
         // This endpoint is hit directly by the phone's browser (a real
         // https link, so it's reliably clickable from Gmail) - not by the
@@ -138,7 +134,7 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
     {
-        var user = await _db.Users.Find(u => u.Email == request.Email).FirstOrDefaultAsync();
+        var user = await _users.GetByEmailAsync(request.Email);
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return Unauthorized(new { message = "Invalid email or password." });
 
@@ -160,34 +156,20 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Name) && string.IsNullOrWhiteSpace(request.Email))
             return BadRequest(new { message = "Provide at least a name or email to update." });
 
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
         if (user == null) return NotFound();
-
-        var updates = new List<UpdateDefinition<User>>();
-
-        if (!string.IsNullOrWhiteSpace(request.Name))
-            updates.Add(Builders<User>.Update.Set(u => u.Name, request.Name));
 
         if (!string.IsNullOrWhiteSpace(request.Email) && request.Email != user.Email)
         {
             // Only check for a conflict if the email is actually changing -
             // this is a genuine email-change operation on the same account,
             // not creating a new one; we just need to keep emails unique.
-            var existing = await _db.Users
-                .Find(u => u.Email == request.Email && u.Id != CurrentUserId)
-                .FirstOrDefaultAsync();
-
-            if (existing != null)
+            var inUse = await _users.EmailInUseByAnotherUserAsync(request.Email, CurrentUserId);
+            if (inUse)
                 return Conflict(new { message = "That email is already in use by another account." });
-
-            updates.Add(Builders<User>.Update.Set(u => u.Email, request.Email));
         }
 
-        if (updates.Count > 0)
-        {
-            var combined = Builders<User>.Update.Combine(updates);
-            await _db.Users.UpdateOneAsync(u => u.Id == CurrentUserId, combined);
-        }
+        await _users.UpdateProfileAsync(CurrentUserId, request.Name, request.Email);
 
         return Ok(new UpdateProfileResponse(
             request.Name ?? user.Name,
@@ -205,15 +187,14 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
             return BadRequest(new { message = "New password must be at least 6 characters." });
 
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
         if (user == null) return NotFound();
 
         if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
             return BadRequest(new { message = "Current password is incorrect." });
 
         var newHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
-        var update = Builders<User>.Update.Set(u => u.PasswordHash, newHash);
-        await _db.Users.UpdateOneAsync(u => u.Id == CurrentUserId, update);
+        await _users.UpdatePasswordHashAsync(CurrentUserId, newHash);
 
         return NoContent();
     }

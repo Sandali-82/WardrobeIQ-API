@@ -1,10 +1,9 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 using WardrobeApi.DTOs;
 using WardrobeApi.Models;
-using WardrobeApi.Services;
+using WardrobeApi.Repositories;
 
 namespace WardrobeApi.Controllers;
 
@@ -13,11 +12,11 @@ namespace WardrobeApi.Controllers;
 [Authorize]
 public class OutfitController : ControllerBase
 {
-    private readonly MongoDbContext _db;
+    private readonly IOutfitRepository _outfits;
 
-    public OutfitController(MongoDbContext db)
+    public OutfitController(IOutfitRepository outfits)
     {
-        _db = db;
+        _outfits = outfits;
     }
 
     private string CurrentUserId =>
@@ -26,21 +25,14 @@ public class OutfitController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<OutfitResponse>>> GetAll()
     {
-        var outfits = await _db.Outfits
-            .Find(o => o.UserId == CurrentUserId)
-            .SortByDescending(o => o.CreatedAt)
-            .ToListAsync();
-
+        var outfits = await _outfits.GetAllForUserAsync(CurrentUserId);
         return Ok(outfits.Select(ToResponse));
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<OutfitResponse>> GetById(string id)
     {
-        var outfit = await _db.Outfits
-            .Find(o => o.Id == id && o.UserId == CurrentUserId)
-            .FirstOrDefaultAsync();
-
+        var outfit = await _outfits.GetByIdAsync(id, CurrentUserId);
         if (outfit == null) return NotFound();
         return Ok(ToResponse(outfit));
     }
@@ -53,9 +45,7 @@ public class OutfitController : ControllerBase
 
         // Make sure every referenced item actually belongs to this user -
         // otherwise someone could save an outfit pointing at another user's items.
-        var ownedCount = await _db.ClothingItems.CountDocumentsAsync(
-            i => i.UserId == CurrentUserId && request.ItemIds.Contains(i.Id));
-
+        var ownedCount = await _outfits.CountOwnedItemsAsync(CurrentUserId, request.ItemIds);
         if (ownedCount != request.ItemIds.Count)
             return BadRequest(new { message = "One or more items don't exist in your wardrobe." });
 
@@ -66,42 +56,27 @@ public class OutfitController : ControllerBase
             ItemIds = request.ItemIds
         };
 
-        await _db.Outfits.InsertOneAsync(outfit);
+        await _outfits.CreateAsync(outfit);
         return CreatedAtAction(nameof(GetById), new { id = outfit.Id }, ToResponse(outfit));
     }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, CreateOutfitRequest request)
     {
-        var ownedCount = await _db.ClothingItems.CountDocumentsAsync(
-            i => i.UserId == CurrentUserId && request.ItemIds.Contains(i.Id));
-
+        var ownedCount = await _outfits.CountOwnedItemsAsync(CurrentUserId, request.ItemIds);
         if (ownedCount != request.ItemIds.Count)
             return BadRequest(new { message = "One or more items don't exist in your wardrobe." });
 
-        var update = Builders<Outfit>.Update
-            .Set(o => o.Name, request.Name)
-            .Set(o => o.ItemIds, request.ItemIds);
-
-        var result = await _db.Outfits.UpdateOneAsync(
-            o => o.Id == id && o.UserId == CurrentUserId, update);
-
-        if (result.MatchedCount == 0) return NotFound();
+        var updated = await _outfits.UpdateAsync(id, CurrentUserId, request.Name, request.ItemIds);
+        if (!updated) return NotFound();
         return NoContent();
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id)
     {
-        var result = await _db.Outfits.DeleteOneAsync(
-            o => o.Id == id && o.UserId == CurrentUserId);
-
-        if (result.DeletedCount == 0) return NotFound();
-
-        // Clean up any worn-log entries pointing at the deleted outfit so the
-        // calendar doesn't end up with dangling references.
-        await _db.WornLogs.DeleteManyAsync(w => w.OutfitId == id && w.UserId == CurrentUserId);
-
+        var deleted = await _outfits.DeleteAsync(id, CurrentUserId);
+        if (!deleted) return NotFound();
         return NoContent();
     }
 

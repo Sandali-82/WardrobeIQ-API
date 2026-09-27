@@ -1,8 +1,8 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 using WardrobeApi.DTOs;
+using WardrobeApi.Repositories;
 using WardrobeApi.Services;
 
 namespace WardrobeApi.Controllers;
@@ -12,12 +12,12 @@ namespace WardrobeApi.Controllers;
 [Authorize]
 public class ProfileController : ControllerBase
 {
-    private readonly MongoDbContext _db;
+    private readonly IUserRepository _users;
     private readonly IGeminiService _gemini;
 
-    public ProfileController(MongoDbContext db, IGeminiService gemini)
+    public ProfileController(IUserRepository users, IGeminiService gemini)
     {
-        _db = db;
+        _users = users;
         _gemini = gemini;
     }
 
@@ -38,8 +38,7 @@ public class ProfileController : ControllerBase
         var (shape, explanation) = FaceShapeCalculator.Classify(
             request.ForeheadWidth, request.CheekboneWidth, request.JawlineWidth, request.FaceLength);
 
-        var update = Builders<Models.User>.Update.Set(u => u.FaceShape, shape);
-        await _db.Users.UpdateOneAsync(u => u.Id == CurrentUserId, update);
+        await _users.UpdateFaceShapeAsync(CurrentUserId, shape);
 
         return Ok(new FaceShapeResponse(shape, explanation));
     }
@@ -47,7 +46,7 @@ public class ProfileController : ControllerBase
     [HttpGet("face-shape")]
     public async Task<ActionResult<object>> GetFaceShape()
     {
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
         if (user?.FaceShape == null)
             return NotFound(new { message = "No face shape calculated yet." });
 
@@ -68,8 +67,7 @@ public class ProfileController : ControllerBase
         var (shape, explanation) = BodyShapeCalculator.Classify(
             request.ShoulderWidth, request.BustWidth, request.WaistWidth, request.HipWidth);
 
-        var update = Builders<Models.User>.Update.Set(u => u.BodyShape, shape);
-        await _db.Users.UpdateOneAsync(u => u.Id == CurrentUserId, update);
+        await _users.UpdateBodyShapeAsync(CurrentUserId, shape);
 
         return Ok(new BodyShapeResponse(shape, explanation));
     }
@@ -77,7 +75,7 @@ public class ProfileController : ControllerBase
     [HttpGet("body-shape")]
     public async Task<ActionResult<object>> GetBodyShape()
     {
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
         if (user?.BodyShape == null)
             return NotFound(new { message = "No body shape calculated yet." });
 
@@ -97,8 +95,7 @@ public class ProfileController : ControllerBase
             var (undertone, explanation) = await _gemini.AnalyzeSkinUndertoneAsync(
                 request.ImageBase64, request.MimeType);
 
-            var update = Builders<Models.User>.Update.Set(u => u.SkinUndertone, undertone);
-            await _db.Users.UpdateOneAsync(u => u.Id == CurrentUserId, update);
+            await _users.UpdateSkinUndertoneAsync(CurrentUserId, undertone);
 
             return Ok(new UndertoneResponse(undertone, explanation));
         }
@@ -111,7 +108,7 @@ public class ProfileController : ControllerBase
     [HttpGet("undertone")]
     public async Task<ActionResult<object>> GetUndertone()
     {
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
         if (user?.SkinUndertone == null)
             return NotFound(new { message = "No skin undertone analyzed yet." });
 
@@ -123,7 +120,7 @@ public class ProfileController : ControllerBase
     [HttpGet("styling-guide")]
     public async Task<ActionResult<StylingGuideResponse>> GetStylingGuide()
     {
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
 
         if (user?.FaceShape == null && user?.BodyShape == null && user?.SkinUndertone == null)
         {

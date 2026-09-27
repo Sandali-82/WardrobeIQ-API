@@ -1,8 +1,8 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 using WardrobeApi.DTOs;
+using WardrobeApi.Repositories;
 using WardrobeApi.Services;
 
 namespace WardrobeApi.Controllers;
@@ -12,12 +12,14 @@ namespace WardrobeApi.Controllers;
 [Authorize]
 public class SuggestionController : ControllerBase
 {
-    private readonly MongoDbContext _db;
-    private readonly GeminiService _gemini;
+    private readonly IClothingItemRepository _items;
+    private readonly IUserRepository _users;
+    private readonly IGeminiService _gemini;
 
-    public SuggestionController(MongoDbContext db, GeminiService gemini)
+    public SuggestionController(IClothingItemRepository items, IUserRepository users, IGeminiService gemini)
     {
-        _db = db;
+        _items = items;
+        _users = users;
         _gemini = gemini;
     }
 
@@ -45,14 +47,12 @@ public class SuggestionController : ControllerBase
             });
         }
 
-        var wardrobe = await _db.ClothingItems
-            .Find(i => i.UserId == CurrentUserId)
-            .ToListAsync();
+        var wardrobe = await _items.GetAllForUserAsync(CurrentUserId, category: null, color: null);
 
         if (wardrobe.Count == 0)
             return BadRequest(new { message = "Add some clothing items to your wardrobe first." });
 
-        var user = await _db.Users.Find(u => u.Id == CurrentUserId).FirstOrDefaultAsync();
+        var user = await _users.GetByIdAsync(CurrentUserId);
 
         try
         {
